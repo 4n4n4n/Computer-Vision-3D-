@@ -1,0 +1,7 @@
+__pycache__/
+*.log
+*.aux
+*.pdf
+.DS_Store
+node_modules/
+*.zip

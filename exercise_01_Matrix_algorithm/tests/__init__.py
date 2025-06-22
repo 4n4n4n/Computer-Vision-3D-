@@ -1,0 +1,4 @@
+
+from .test_compute_meetingpoint import test_compute_meetingpoint
+from .test_gaussian_elimination import test_gaussian_elimination
+from .test_pseudo_inverse import test_pseudo_inverse, generate_matrix, generate_plt_data
