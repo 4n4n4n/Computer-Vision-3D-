@@ -16,7 +16,13 @@ def transformImgCoord(x1, x2, y1, y2, K1, K2):
     ########################################################################
 
 
-    pass
+    pts1 = np.matmul(np.linalg.inv(K1), np.stack([x1, y1, np.ones_like(x1)]))
+    pts2 = np.matmul(np.linalg.inv(K2), np.stack([x2, y2, np.ones_like(x2)]))
+
+    x1 = pts1[0]
+    y1 = pts1[1]
+    x2 = pts2[0]
+    y2 = pts2[1]
 
     ########################################################################
     #                           END OF YOUR CODE                           #
@@ -36,7 +42,7 @@ def constructChiMatrix(x1, x2, y1, y2):
         ########################################################################
         
 
-        pass
+        chi_mat[i] = np.array([x1[i]*x2[i], x1[i]*y2[i], x1[i], y1[i]*x2[i], y1[i]*y2[i], y1[i], x2[i], y2[i], 1])
 
         ########################################################################
         #                           END OF YOUR CODE                           #
@@ -53,26 +59,33 @@ def solveForEssentialMatrix(chi_mat):
     # TODO: solve the minimization problem to get the solution of E here.  #
     ########################################################################
 
+    # Perform SVD on chi_mat
+    _, S, vh = np.linalg.svd(chi_mat)
+    
+    # Find the vector with the smallest singular value (last row of vh)
+    E = vh[-1]  
 
-    pass
+    # Reshape E to 3x3 by filling columns first
+    E = np.reshape(E, (3,3), 'F')
 
-    ########################################################################
-    #                           END OF YOUR CODE                           #
-    ########################################################################
+    # Perform SVD on E
+    U, S, Vt = np.linalg.svd(E)
 
-    # ensure the determinant of U and Vt is positive
+    # Ensure the determinants of U and Vt are positive
     if np.linalg.det(U) < 0:
-        U *= -1
+        U = -U
     if np.linalg.det(Vt) < 0:
-        Vt *= -1
+        Vt = -Vt
 
-    ########################################################################
-    # TODO: Project the E to the normalized essential space here,          #
-    # don't forget S should be a diagonal matrix.                          #
-    ########################################################################    
+    # Set the singular values to enforce the essential matrix constraint
+    # Essential matrix should have two equal non-zero singular values and one zero singular value
+    S = np.array([1.0, 1.0, 0.0])
+
+    # Reconstruct E with the corrected singular values
+    E = U @ np.diag(S) @ Vt
 
 
-    pass
+
 
     ########################################################################
     #                           END OF YOUR CODE                           #
@@ -112,7 +125,16 @@ def recoverPose(U, Vt, S):
     ########################################################################
 
 
-    pass
+    Rz1 = np.array([[0,1,0], [-1,0,0], [0,0,1]])
+    Rz2 = np.array([[0,-1,0], [1,0,0], [0,0,1]])
+    R1 = U @ Rz1 @ Vt
+    R2 = U @ Rz2 @ Vt
+    # be careful of the rotation direction
+    T1_hat = U @ Rz2 @ S @ U.T
+    T2_hat = U @ Rz1 @ S @ U.T
+    # Extract translation vectors from the skew-symmetric matrices
+    T1 = np.array([T1_hat[2,1], T1_hat[0,2], T1_hat[1,0]])
+    T2 = np.array([T2_hat[2,1], T2_hat[0,2], T2_hat[1,0]])
 
     ########################################################################
     #                           END OF YOUR CODE                           #
@@ -139,14 +161,42 @@ def reconstruct(x1, x2, y1, y2, R, T):
     #  4. check the number of points with positive depth,                  #
     #     it should be n_pts                                               #
     ########################################################################
+    
+    # 1. Construct M
+    pts1 = np.stack([x1, y1, np.ones_like(x1)], axis = 1) # (n,3)
+    pts2 = np.stack([x2, y2, np.ones_like(x1)], axis = 1)
+    M = np.zeros((3*n_pts, n_pts+1)) 
+    for i in range(n_pts):
+        skew_p2 = skewMat(pts2[i])
+        M[3*i: 3*(i+1), i] = (skew_p2 @ R @ pts1[i])
+        M[3*i: 3*(i+1), n_pts] = (skew_p2 @ T)
+    # 2. find the lmabda and gamma
+    _, _, Vh = np.linalg.svd(M)
+    
+    solution = Vh[-1, :]
+    lmbda = solution[:-1] #(n, )
+    gamma = solution [-1] # constant
+    # print("Vh\n", Vh)
+
+    # normalize gamma to 1
+    lmbda /= gamma
+    gamma /= gamma
 
 
-    pass
+    # 3. Get back X1 and X2
+    X1 = pts1.T * lmbda # (3, n)
+    X2 = R @ X1 + (gamma * T)[:, np.newaxis]
+
+    # 4. Count how many points have positive depth (z-coordinate > 0)
+    n_positive_depth1 = np.sum(X1[2, :] > 0)
+    n_positive_depth2 = np.sum(X2[2, :] > 0)
 
     ########################################################################
     #                           END OF YOUR CODE                           #
     ########################################################################
 
+
+    
     if n_positive_depth1 == n_pts and n_positive_depth2 == n_pts:
         return X1, X2
     else:
